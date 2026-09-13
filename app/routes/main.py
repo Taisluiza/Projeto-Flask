@@ -4,7 +4,9 @@ from pydantic import ValidationError
 from app import db
 from bson import ObjectId
 from app.models.products import *
-
+from app.decorators import token_required
+from datetime import datetime, timedelta, timezone
+import jwt
 
 
 
@@ -27,10 +29,15 @@ def login():
     except Exception as e:
      return jsonify({"error": "Erro durante a requisição do dado"}), 500
 
-    if user_data.username == 'admin' and user_data.password == '123':
-     return jsonify({"message": "Login bem-sucedido!"})
-    else:
-     return jsonify({"message": "Credenciais invalidas!"})
+    if user_data.username == 'admin' and user_data.password == "supersecret":
+       token = jwt.encode(
+          {
+            "user_id": user_data.username,
+            "exp": datetime.now(timezone.utc) + timedelta(minutes=30)
+           },
+           current_app.config['SECRET_KEY'], algorithm="HS256")
+       return jsonify({'access_token': token}),200
+    return jsonify({"message": "Credenciais invalidas!"}),401
 
     return jsonify({"message": f"Realizar o login do usuario {user_data.model_dump_json()}"})
 
@@ -47,9 +54,18 @@ def get_products():
     return jsonify(products_list)
 
 # O sistema deve permitir a criacao de um novo produto
+@token_required
 @main_bp.route('/products', methods=['POST'])
-def create_product():
-    return jsonify({"message":"Esta é a rota de criação de produto"})
+def create_product(token):
+    try:
+       product = Product(**request.get_json())
+    except ValidationError as e:
+       return jsonify({"error": e.errors()})
+
+    result = db.products.insert_one(product.model_dump())
+
+    return jsonify({"id": str(result.inserted_id), "message":"Produto criado com sucesso"}), 201
+
 
 # O sistema deve permitir a visualizacao dos detalhes de um unico produto
 @main_bp.route('/product/<string:product_id>', methods=['GET'])
